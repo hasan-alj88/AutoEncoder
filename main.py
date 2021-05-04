@@ -14,9 +14,9 @@ ds = tfds.load('mnist', split='train', shuffle_files=True, as_supervised=True)
 ds = ds.shuffle(1024).prefetch(tf.data.experimental.AUTOTUNE)
 ic(ds)
 ae = AutoEncoder(ds,
-                 units=[128, 64, 32],
-                 filters=[4, 4, 4],
-                 pools=[2, 2, 2])
+                 units=[16, 8, 8],
+                 filters=[3, 3, 3],
+                 pools=[2, 2, 1])
 print(ae)
 
 x, y = tf_tools.get_random_sample(ds)

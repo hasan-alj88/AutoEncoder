@@ -7,6 +7,7 @@ from icecream import ic
 import matplotlib.pyplot as plt
 import seaborn as sns
 from typing import Optional, Tuple, List
+from tensorflow.python.keras.layers import Lambda
 
 
 def tf_dataset_itr(tf_ds: tf.data.Dataset):
@@ -17,29 +18,6 @@ def tf_dataset_itr(tf_ds: tf.data.Dataset):
 
 def rounded_accuracy(y_true, y_pred):
     return tf.keras.metrics.binary_accuracy(tf.round(y_true), tf.round(y_pred))
-
-
-def encoder_decoder_layers(units: int,
-                           input_shape: Tuple,
-                           layer_type: str = 'Dense',
-                           filters: Optional[int] = None,  # default is 4
-                           pool: Optional[int] = None):  # default is pooling is not applied
-    if not layer_type == 'convolution':
-        return tf.keras.layers.Dense(units=units), tf.keras.layers.Dense(units=units)
-    else:
-        filters = 4 if filters is None else filters
-        xin = tf.keras.layers.InputLayer(input_shape)
-        x = layers.Conv2D(units, (filters, filters), activation='relu', padding='same')(xin)
-        if pool is not None:
-            encoded = layers.MaxPooling2D((pool, pool), padding='same')(x)
-        else:
-            encoded = x
-        x = layers.Conv2D(units, (filters, filters), activation='relu', padding='same')(encoded)
-        if pool is None:
-            decoded = layers.UpSampling2D((pool, pool))(x)
-        else:
-            decoded = x
-        return tf.keras.Model(xin, encoded), tf.keras.Model(encoded, decoded)
 
 
 def plot_confusion_matrix(model: tf.keras.Model,
@@ -55,7 +33,7 @@ def plot_confusion_matrix(model: tf.keras.Model,
 
 
 def get_x_shape(tf_ds):
-    return [x for x, _ in tf_ds.take(1)][0].numpy().shape
+    return np.squeeze(next(tf_dataset_itr(tf_ds))[0]).shape
 
 
 def ds_x_data(tf_ds):
@@ -93,47 +71,61 @@ class AutoEncoder(Model):
                  layers_type: str = 'Convolutional',
                  filters: Optional[List[int]] = None,
                  pools: Optional[List[int]] = None):
+        if layers_type not in ['Convolutional', 'Dense']:
+            raise ValueError(f'layers_type value must be either Convolutional or Dense.')
+        if not (len(units) == len(filters) == len(pools)):
+            raise ValueError(f'units, filters and pools must have same number of elements.')
+
         tf_ds = tf_ds.shuffle(2048)
         x_data = ds_x_data(tf_ds)
         x_data = x_data / np.max(x_data)  # Normalize
         ic(x_data.shape)
         self.ds = tf.data.Dataset.from_tensor_slices((x_data, x_data))
-        self.ds = self.ds.shuffle(1024).batch(100).prefetch(tf.data.experimental.AUTOTUNE)
+        self.ds = self.ds.shuffle(1024).prefetch(tf.data.experimental.AUTOTUNE)
         ic(self.ds)
         self.train_ds, self.val_ds = train_test_dataset_spilt(self.ds)
         ic(self.train_ds)
         ic(self.val_ds)
 
-        self.AE_input_shape = get_x_shape(self.train_ds)[1:]
+        self.AE_input_shape = get_x_shape(self.train_ds)+(1,)
         ic(self.AE_input_shape)
 
         x_in = layers.Input(self.AE_input_shape)
         ic(x_in)
         x = x_in
         decoder_layers = []
+        # Building the Encoder and create decoder layer to be built later
         for Unit, Filter, Pool in zip(units, filters, pools):
-            encode_layer, decode_layer = encoder_decoder_layers(
-                units=Unit,
-                filters=Filter,
-                pool=Pool,
-                layer_type=layers_type,
-                input_shape=x.shape,
-            )
-            decoder_layers.append(decode_layer)
-            x = encode_layer(x)
-            ic(decode_layer)
-            ic(encode_layer)
-            ic(x)
+            ic(Unit, Filter, Pool)
+            if layers_type == 'Dense':
+                x = layers.Dense(Unit, activation='relu')(x)
+            else:
+                x = layers.Conv2D(Unit, (Filter, Filter), activation='relu', padding='same')(x)
+                x = layers.MaxPooling2D((Pool, Pool))(x)
 
-        self.code = x
-        ic(self.code)
-        for decode_layer in reversed(decoder_layers):
-            x = decode_layer(x)
-            ic(x)
+        # Bottleneck
+        code = x
+        ic(code)
+
+        # Building the Decoder
+        for Unit, Filter, Pool in zip(reversed(units), reversed(filters), reversed(pools)):
+            ic(Unit, Filter, Pool)
+            if layers_type == 'Dense':
+                x = layers.Dense(Unit, activation='relu')(x)
+            else:
+                x = layers.Conv2DTranspose(Unit, (Filter, Filter), activation='relu', padding='same')(x)
+                x = layers.UpSampling2D((Pool, Pool))(x)
         else:
-            decoded = x
-
+            if layers_type == 'Dense':
+                decoded = x
+            else:
+                decoded = layers.Conv2D(1,
+                                        units[0],
+                                        activation='sigmoid',
+                                        padding='same')(x)
+        ic(decoded)
         super(AutoEncoder, self).__init__(x_in, decoded)
+        self.code = code
         self.compile(optimizer=tf.keras.optimizers.SGD(0.001),
                      loss=tf.keras.losses.BinaryCrossentropy(),
                      metrics=[rounded_accuracy],
@@ -143,7 +135,7 @@ class AutoEncoder(Model):
             self.train_ds,
             epochs=512,
             callbacks=[
-                tf.keras.callbacks.EarlyStopping(patience=3,
+                tf.keras.callbacks.EarlyStopping(patience=2,
                                                  verbose=1,
                                                  restore_best_weights=True),
                 tf.keras.callbacks.ReduceLROnPlateau(monitor='rounded_accuracy',
