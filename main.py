@@ -13,7 +13,10 @@ ds = tfds.load('mnist', split='train', shuffle_files=True, as_supervised=True)
 # Build your input pipeline
 ds = ds.shuffle(1024).prefetch(tf.data.experimental.AUTOTUNE)
 ic(ds)
-ae = AutoEncoder(ds)
+ae = AutoEncoder(ds,
+                 units=[128, 64, 32],
+                 filters=[4, 4, 4],
+                 pools=[2, 2, 2])
 print(ae)
 
 x, y = tf_tools.get_random_sample(ds)
