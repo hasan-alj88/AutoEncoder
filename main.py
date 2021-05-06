@@ -14,9 +14,9 @@ ds = tfds.load('mnist', split='train', shuffle_files=True, as_supervised=True)
 ds = ds.shuffle(1024).prefetch(tf.data.experimental.AUTOTUNE)
 ic(ds)
 ae = AutoEncoder(ds,
-                 units=[16, 8, 8],
-                 filters=[3, 3, 3],
-                 pools=[2, 2, 1])
+                 units=[64, 64, 64, 64],
+                 filters=[4, 4, 4, 4],
+                 pools=[2, 2, 1, 1])
 print(ae)
 
 x, y = tf_tools.get_random_sample(ds)
@@ -24,5 +24,6 @@ plt.subplot(211)
 plt.imshow(np.squeeze(x)/np.max(x))
 plt.subplot(212)
 plt.imshow(np.squeeze(ae(x)))
+ae.save_weights('AE.h5')
 plt.show()
 ae.plot_loss()

@@ -17,7 +17,7 @@ def tf_dataset_itr(tf_ds: tf.data.Dataset):
 
 
 def rounded_accuracy(y_true, y_pred):
-    return tf.keras.metrics.binary_accuracy(tf.round(y_true), tf.round(y_pred))
+    return 1-tf.keras.metrics.mean_absolute_error(tf.round(y_true), tf.round(y_pred))
 
 
 def plot_confusion_matrix(model: tf.keras.Model,
@@ -126,8 +126,8 @@ class AutoEncoder(Model):
         ic(decoded)
         super(AutoEncoder, self).__init__(x_in, decoded)
         self.code = code
-        self.compile(optimizer=tf.keras.optimizers.SGD(0.001),
-                     loss=tf.keras.losses.BinaryCrossentropy(),
+        self.compile(optimizer=tf.keras.optimizers.SGD(0.01),
+                     loss=tf.keras.losses.mean_squared_error,
                      metrics=[rounded_accuracy],
                      )
         self.summary()
@@ -135,11 +135,12 @@ class AutoEncoder(Model):
             self.train_ds,
             epochs=512,
             callbacks=[
-                tf.keras.callbacks.EarlyStopping(patience=2,
+                tf.keras.callbacks.EarlyStopping(patience=10,
                                                  verbose=1,
-                                                 restore_best_weights=True),
-                tf.keras.callbacks.ReduceLROnPlateau(monitor='rounded_accuracy',
-                                                     factor=0.5,
+                                                 restore_best_weights=True,
+                                                 monitor='rounded_accuracy'),
+                tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
+                                                     factor=0.95,
                                                      patience=1,
                                                      verbose=1),
                 tf.keras.callbacks.TerminateOnNaN(),
