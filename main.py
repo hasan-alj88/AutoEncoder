@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-import tf_tools
+
 from tf_tools import AutoEncoder
 import tensorflow as tf
 import tensorflow_datasets as tfds
