@@ -16,15 +16,8 @@ def tf_dataset_itr(tf_ds: tf.data.Dataset):
             yield x, y
 
 
-def numpy_to_tf_dataset(x_data: np.array, y_data: np.array) -> tf.data.Dataset:
-    return tf.data.Dataset.zip((
-        tf.data.Dataset.from_tensor_slices(x_data),
-        tf.data.Dataset.from_tensor_slices(y_data),
-    ))
-
-
 def rounded_accuracy(y_true, y_pred):
-    return 1 - tf.keras.metrics.mean_absolute_error(tf.round(y_true), tf.round(y_pred))
+    return 1-tf.keras.metrics.mean_absolute_error(tf.round(y_true), tf.round(y_pred))
 
 
 def plot_confusion_matrix(model: tf.keras.Model,
@@ -94,13 +87,13 @@ class AutoEncoder(Model):
         ic(self.train_ds)
         ic(self.val_ds)
 
-        self.AE_input_shape = get_x_shape(self.train_ds) + (1,)
+        self.AE_input_shape = get_x_shape(self.train_ds)+(1,)
         ic(self.AE_input_shape)
 
         x_in = layers.Input(self.AE_input_shape)
         ic(x_in)
         x = x_in
-
+        decoder_layers = []
         # Building the Encoder and create decoder layer to be built later
         for Unit, Filter, Pool in zip(units, filters, pools):
             ic(Unit, Filter, Pool)
@@ -137,8 +130,6 @@ class AutoEncoder(Model):
                      loss=tf.keras.losses.mean_squared_error,
                      metrics=[rounded_accuracy],
                      )
-        self.encoder = tf.keras.Model(x_in, code)
-        self.encoder = tf.keras.Model(code, decoded)
         self.summary()
         self.History = self.fit(
             self.train_ds,
@@ -168,5 +159,3 @@ class AutoEncoder(Model):
         plt.legend()
         plt.grid()
         plt.show()
-
-
