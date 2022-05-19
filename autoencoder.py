@@ -27,13 +27,15 @@ class AutoEncoder:
         self.min_input_dim = min(self.input_size[:-1])
         autoencoder_creation_methods = {
             AutoEncoder_type.Convolutional2D: self.convolutional_autoencoder,
-            AutoEncoder_type.DenseLayered: self.dense_layered_autoencoder}
+            AutoEncoder_type.DenseLayered: self.dense_layered_autoencoder,
+            AutoEncoder_type.Convolutional1D: self.convolutional1d_auto_encoder,
+        }
         autoencoder_creation_methods[ae_kind]()
 
     def convolutional_autoencoder(self) -> None:
         ae_input = layers.InputLayer(input_shape=self.input_size)
-        self.create_encoder()
-        self.create_decoder()
+        self.create_cnn_encoder()
+        self.create_cnn_decoder()
         self.model = tf.keras.Sequential(
             layers=[
                 ae_input,
@@ -44,7 +46,7 @@ class AutoEncoder:
         )
         self.model.summary()
 
-    def create_encoder(self) -> None:
+    def create_cnn_encoder(self) -> None:
         self.encoder = tf.keras.Sequential(name='Encoder')
         self.encoder.add(layers.InputLayer(input_shape=self.input_size))
 
@@ -60,10 +62,9 @@ class AutoEncoder:
 
         self.encoder.add(layers.Flatten())
         self.first_dense_shape = self.encoder.layers[-1].output_shape[1]
-        self.encoder.add(layers.Dense(code, activation=None))
-        self.encoder.summary()
+        self.encoder.add(layers.Dense(self.code_length, activation=None))
 
-    def create_decoder(self) -> None:
+    def create_cnn_decoder(self) -> None:
         self.decoder = tf.keras.Sequential(name='Decoder')
         self.decoder.add(layers.InputLayer(input_shape=(self.code_length,)))
         self.decoder.add(layers.Dense(self.first_dense_shape, activation='relu'))
@@ -73,14 +74,11 @@ class AutoEncoder:
             self.decoder.add(layers.UpSampling2D((2, 2)))
             self.decoder.add(layers.ReLU())
         self.decoder.add(layers.Conv2D(filters=1, kernel_size=1, padding='same'))
-        self.decoder.summary()
 
     def dense_layered_autoencoder(self):
 
         self.encoder = tf.keras.Sequential(name='Encoder')
         self.encoder.add(layers.InputLayer(input_shape=self.input_size))
-        self.encoder.add(layers.Flatten())
-        self.encoder.add(layers.BatchNormalization())
         self.encoder.add(layers.Flatten())
         dense_length = self.encoder.output_shape[1]
         dense_layers = [dense_length // 2 ** dl for dl in range(int(np.log2(dense_length)))
@@ -105,8 +103,7 @@ class AutoEncoder:
         self.encoder = tf.keras.Sequential(name='Encoder')
         self.encoder.add(layers.InputLayer(input_shape=self.input_size))
         self.encoder.add(layers.Flatten())
-        self.encoder.add(layers.BatchNormalization())
-        self.encoder.add(layers.Flatten())
+        self.encoder.add(layers.Lambda(lambda x: tf.expand_dims(x, -1)))
         conv1d_length = self.encoder.output_shape[1]
         conv1d_layers = [conv1d_length // 2 ** dl for dl in range(int(np.log2(conv1d_length)))
                          if conv1d_length // 2 ** dl > self.code_length * 2]
@@ -115,23 +112,19 @@ class AutoEncoder:
                 kernel_size=conv1d_layer, filters=3, padding='same', activation='relu'))
             self.encoder.add(layers.MaxPooling1D(pool_size=2))
         self.encoder.add(layers.Dense(self.code_length, activation=None))
+        self.encoder.summary()
 
         self.decoder = tf.keras.Sequential(name='Decoder')
         self.decoder.add(layers.InputLayer(input_shape=(self.code_length,)))
+        self.decoder.add(layers.Lambda(lambda x: tf.expand_dims(x, -1)))
         for conv1d_layer in reversed(conv1d_layers):
             self.decoder.add(layers.Conv1DTranspose(
                 kernel_size=conv1d_layer, filters=3, padding='same', activation='relu'))
             self.decoder.add(layers.UpSampling1D(size=2))
-        self.decoder.add(layers.Reshape(self.input_size))
+        # self.decoder.add(layers.Reshape(self.input_size))
+        self.decoder.summary()
 
         self.model = tf.keras.Sequential(name='AutoEncoder')
         self.model.add(layers.InputLayer(input_shape=self.input_size))
         self.model.add(self.encoder)
         self.model.add(self.decoder)
-
-
-in_shape = (128, 64, 1)
-code = 16
-
-ae = AutoEncoder(input_size=in_shape, code_length=16)
-# ae.summary()

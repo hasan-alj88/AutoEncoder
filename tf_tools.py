@@ -17,7 +17,7 @@ def tf_dataset_itr(tf_ds: tf.data.Dataset):
 
 
 def rounded_accuracy(y_true, y_pred):
-    return 1-tf.keras.metrics.mean_absolute_error(tf.round(y_true), tf.round(y_pred))
+    return 1 - tf.keras.metrics.mean_absolute_error(tf.round(y_true), tf.round(y_pred))
 
 
 def plot_confusion_matrix(model: tf.keras.Model,
@@ -65,97 +65,44 @@ def train_test_dataset_spilt(tf_ds: tf.data.Dataset,
     return train_ds, test_ds
 
 
-class AutoEncoder(Model):
-    def __init__(self, tf_ds: tf.data.Dataset,
-                 units: List[int],
-                 layers_type: str = 'Convolutional',
-                 filters: Optional[List[int]] = None,
-                 pools: Optional[List[int]] = None):
-        if layers_type not in ['Convolutional', 'Dense']:
-            raise ValueError(f'layers_type value must be either Convolutional or Dense.')
-        if not (len(units) == len(filters) == len(pools)):
-            raise ValueError(f'units, filters and pools must have same number of elements.')
+def relative_tensor(tensor: tf.float64, row: int):
+    return tf.concat([tensor[:row], tensor[row + 1:]], axis=0)
 
-        tf_ds = tf_ds.shuffle(2048)
-        x_data = ds_x_data(tf_ds)
-        x_data = x_data / np.max(x_data)  # Normalize
-        ic(x_data.shape)
-        self.ds = tf.data.Dataset.from_tensor_slices((x_data, x_data))
-        self.ds = self.ds.shuffle(1024).prefetch(tf.data.experimental.AUTOTUNE)
-        ic(self.ds)
-        self.train_ds, self.val_ds = train_test_dataset_spilt(self.ds)
-        ic(self.train_ds)
-        ic(self.val_ds)
 
-        self.AE_input_shape = get_x_shape(self.train_ds)+(1,)
-        ic(self.AE_input_shape)
+def relative_variance(tensor: tf.float64, axis: int = 0):
+    if axis > 2:
+        raise ValueError('axis must be 0->rows or 1->columns.')
+    elif axis == 1:
+        t = tf.transpose(tensor)
+    else:
+        t = tensor
+    trr_rows = []
+    for row in range(tensor.shape[0]):
+        trr_row = relative_tensor(t, row)
+        trr_row = tf.math.reduce_variance(trr_row, axis=1)
+        trr_row = tf.expand_dims(trr_row, axis=1)
+        trr_rows.append(trr_row)
+    trr = tf.concat(trr_rows, axis=1)
+    trr = tf.squeeze(trr)
+    return tf.transpose(trr) if axis == 1 else trr
 
-        x_in = layers.Input(self.AE_input_shape)
-        ic(x_in)
-        x = x_in
-        decoder_layers = []
-        # Building the Encoder and create decoder layer to be built later
-        for Unit, Filter, Pool in zip(units, filters, pools):
-            ic(Unit, Filter, Pool)
-            if layers_type == 'Dense':
-                x = layers.Dense(Unit, activation='relu')(x)
-            else:
-                x = layers.Conv2D(Unit, (Filter, Filter), activation='relu', padding='same')(x)
-                x = layers.MaxPooling2D((Pool, Pool))(x)
 
-        # Bottleneck
-        code = x
-        ic(code)
+def variance_outlier_extraction(tensor):
+    t_row = relative_variance(tensor)
+    t_col = relative_variance(tensor, axis=1)
+    trc = tf.math.reduce_min(tf.concat([
+        tf.expand_dims(t_row, axis=2),
+        tf.expand_dims(t_col, axis=2),
+    ],
+        axis=2),
+        axis=2)
+    trc = tf.expand_dims(trc, axis=2)
+    return tf.image.flip_up_down(trc)
 
-        # Building the Decoder
-        for Unit, Filter, Pool in zip(reversed(units), reversed(filters), reversed(pools)):
-            ic(Unit, Filter, Pool)
-            if layers_type == 'Dense':
-                x = layers.Dense(Unit, activation='relu')(x)
-            else:
-                x = layers.Conv2DTranspose(Unit, (Filter, Filter), activation='relu', padding='same')(x)
-                x = layers.UpSampling2D((Pool, Pool))(x)
-        else:
-            if layers_type == 'Dense':
-                decoded = x
-            else:
-                decoded = layers.Conv2D(1,
-                                        units[0],
-                                        activation='sigmoid',
-                                        padding='same')(x)
-        ic(decoded)
-        super(AutoEncoder, self).__init__(x_in, decoded)
-        self.code = code
-        self.compile(optimizer=tf.keras.optimizers.SGD(0.01),
-                     loss=tf.keras.losses.mean_squared_error,
-                     metrics=[rounded_accuracy],
-                     )
-        self.summary()
-        self.History = self.fit(
-            self.train_ds,
-            epochs=512,
-            callbacks=[
-                tf.keras.callbacks.EarlyStopping(patience=10,
-                                                 verbose=1,
-                                                 restore_best_weights=True,
-                                                 monitor='rounded_accuracy'),
-                tf.keras.callbacks.ReduceLROnPlateau(monitor='val_loss',
-                                                     factor=0.95,
-                                                     patience=1,
-                                                     verbose=1),
-                tf.keras.callbacks.TerminateOnNaN(),
-            ],
-            verbose=1,
-            validation_data=self.val_ds,
-        )
 
-    def plot_loss(self):
-        ic(self.History)
-        plt.plot(self.History.history['val_loss'], label='val_loss')
-        plt.plot(self.History.history['loss'], label='loss')
-        plt.title('AutoEncoder Loss')
-        plt.xlabel('Epochs')
-        plt.ylabel('Loss')
-        plt.legend()
-        plt.grid()
-        plt.show()
+class variance_outlier_extraction_layer(tf.keras.layers.Layer):
+    def __init__(self):
+        super(variance_outlier_extraction_layer, self).__init__()
+
+    def call(self, inputs, **kwargs):
+        return tf.keras.layers.Lambda(variance_outlier_extraction)(inputs)
